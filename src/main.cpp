@@ -46,8 +46,8 @@ float gyroZerror = 0.01;
 #define DEBUG true
 #define RELAY_PIN 13
 #define LED_HIJAU 33
-#define LED_MERAH 34
-#define LED_KUNING 35
+#define LED_MERAH 12
+#define LED_KUNING 32
 
 // ------------------ MAX30003 ECG Module ------------------
 #define INT_PIN 26
