@@ -2,8 +2,10 @@
 #include <Adafruit_MPU6050.h>
 #include <Adafruit_Sensor.h>
 #include <Wire.h>
+#include <SPI.h>
+#include "protocentral_Max30003.h"
 
-// MPU6050 Fall detection
+// MPU6050 Variables
 const int MPU_address = 0x68;
 int16_t AcX, AcY, AcZ, Tmp, GyX, GyY, GyZ;
 float ax = 0, ay = 0, az = 0, gx = 0, gy = 0, gz = 0;
@@ -19,7 +21,6 @@ int lowerThres = 2;
 int higherThres = 12;
 int angleLowerThres = 30;
 int angleHigherThres = 400;
-void mpu_read();
 
 // Timer variables
 unsigned long lastTime = 0;
@@ -42,41 +43,98 @@ float gyroXerror = 0.07;
 float gyroYerror = 0.03;
 float gyroZerror = 0.01;
 
-void initMPU()
-{
-  if (!mpu.begin())
-  {
-    Serial.println("Failed to find MPU6050 chip");
-    while (1)
-    {
-      delay(10);
-    }
-  }
-  Serial.println("MPU6050 Found!");
-}
+#define DEBUG true
+#define RELAY_PIN 13
+#define LED_HIJAU 33
+#define LED_MERAH 34
+#define LED_KUNING 35
+
+// ------------------ MAX30003 ECG Module ------------------
+#define INT_PIN 26
+MAX30003 max30003;
+bool rtorIntrFlag = false;
+uint8_t statusReg[3];
+
+// ------------------- Function Declaration --------------------
+void initMPU6050();
+void mpu_read();
+void fallDetection(float ax, float ay, float az, float gx, float gy, float gz);
+void initMAX30003();
+void rtorInterruptHandler();
+void enableInterruptPin();
 
 void setup()
 {
   Serial.begin(115200);
+  pinMode(RELAY_PIN, OUTPUT);
+  pinMode(MAX30003_CS_PIN, OUTPUT);
+  digitalWrite(MAX30003_CS_PIN, HIGH);
+  initMAX30003();
+  initMPU6050();
+}
+
+void loop()
+{
+  // mpu_read();
+  // ax = (AcX - 2050) / 16384.00;
+  // ay = (AcY - 77) / 16384.00;
+  // az = (AcZ - 1947) / 16384.00;
+  // gx = (GyX + 270) / 131.07;
+  // gy = (GyY - 351) / 131.07;
+  // gz = (GyZ + 136) / 131.07;
+  // fallDetection(ax, ay, az, gx, gy, gz);
+  // delay(100);
+
+  // max30003.getEcgSamples(); //It reads the ecg sample and stores it to max30003.ecgdata .
+
+  // Serial.println(max30003.ecgdata);
+  // delay(8);
+  if (rtorIntrFlag)
+  {
+    rtorIntrFlag = false;
+    max30003.max30003RegRead(STATUS, statusReg);
+
+    if (statusReg[1] & RTOR_INTR_MASK)
+    {
+      max30003.getHRandRR(); // get heart rate and rr interval
+      if (DEBUG)
+      {
+        Serial.print(F("Heart Rate =  "));
+        Serial.println(max30003.heartRate);
+
+        Serial.print(F("RR Interval = "));
+        Serial.println(max30003.RRinterval);
+      }
+    }
+  }
+}
+
+void initMPU6050()
+{
   Wire.begin();
-  // initMPU();
   Wire.beginTransmission(MPU_address);
   Wire.write(0x6B); // PWR_MGMT_1 register
   Wire.write(0);    // set to zero (wakes up the MPU-6050)
   Wire.endTransmission(true);
 }
 
-void loop()
+void mpu_read()
 {
-  mpu_read();
+  Wire.beginTransmission(MPU_address);
+  Wire.write(0x3B);
+  Wire.endTransmission(false);
+  Wire.requestFrom(MPU_address, 14, true); // request total of 14 registers
+  AcX = Wire.read() << 8 | Wire.read();    // 0x3B (ACCEL_XOUT_H) & 0x3C (ACCEL_XOUT_L)
+  AcY = Wire.read() << 8 | Wire.read();    // 0x3D (ACCEL_YOUT_H) & 0x3E (ACCEL_YOUT_L)
+  AcZ = Wire.read() << 8 | Wire.read();    // 0x3F (ACCEL_ZOUT_H) & 0x40 (ACCEL_ZOUT_L)
+  Tmp = Wire.read() << 8 | Wire.read();    // 0x41 (TEMP_OUT_H) & 0x42 (TEMP_OUT_L)
+  GyX = Wire.read() << 8 | Wire.read();    // 0x43 (GYRO_XOUT_H) & 0x44 (GYRO_XOUT_L)
+  GyY = Wire.read() << 8 | Wire.read();    // 0x45 (GYRO_YOUT_H) & 0x46 (GYRO_YOUT_L)
+  GyZ = Wire.read() << 8 | Wire.read();    // 0x47 (GYRO_ZOUT_H) & 0x48 (GYRO_ZOUT_L)
+}
 
-  ax = (AcX - 2050) / 16384.00;
-  ay = (AcY - 77) / 16384.00;
-  az = (AcZ - 1947) / 16384.00;
-  gx = (GyX + 270) / 131.07;
-  gy = (GyY - 351) / 131.07;
-  gz = (GyZ + 136) / 131.07;
-
+void fallDetection(float ax, float ay, float az, float gx, float gy, float gz)
+{
   // calculating Amplitute vactor for 3 axis
   float Raw_Amp = pow(pow(ax, 2) + pow(ay, 2) + pow(az, 2), 0.5);
   int Amp = Raw_Amp * 10; // Mulitiplied by 10 bcz values are between 0 to 1
@@ -84,7 +142,8 @@ void loop()
   if (Amp <= lowerThres && trigger2 == false)
   { //if AM breaks lower threshold (0.4g)
     trigger1 = true;
-    Serial.println("TRIGGER 1 ACTIVATED");
+    if (DEBUG)
+      Serial.println(F("TRIGGER 1 ACTIVATED"));
   }
   if (trigger1 == true)
   {
@@ -92,7 +151,8 @@ void loop()
     if (Amp >= higherThres)
     { //if AM breaks upper threshold (3g)
       trigger2 = true;
-      Serial.println("TRIGGER 2 ACTIVATED");
+      if (DEBUG)
+        Serial.println(F("TRIGGER 2 ACTIVATED"));
       trigger1 = false;
       trigger1cnt = 0;
     }
@@ -107,8 +167,11 @@ void loop()
       trigger3 = true;
       trigger2 = false;
       trigger2cnt = 0;
-      Serial.println(angleChange);
-      Serial.println("TRIGGER 3 ACTIVATED");
+      if (DEBUG)
+      {
+        Serial.println(angleChange);
+        Serial.println(F("TRIGGER 3 ACTIVATED"));
+      }
     }
   }
   if (trigger3 == true)
@@ -121,7 +184,8 @@ void loop()
       Serial.println(angleChange);
       if ((angleChange >= 0) && (angleChange <= 10))
       { //if orientation changes remains between 0-10 degrees
-        Serial.println("Jatuhh");
+        if (DEBUG)
+          Serial.println(F("Jatuhh"));
         fall = true;
         trigger3 = false;
         trigger3cnt = 0;
@@ -130,70 +194,71 @@ void loop()
       { //user regained normal orientation
         trigger3 = false;
         trigger3cnt = 0;
-        Serial.println("TRIGGER 3 DEACTIVATED");
+        if (DEBUG)
+          Serial.println(F("TRIGGER 3 DEACTIVATED"));
       }
     }
   }
   if (fall == true)
   { //in event of a fall detection
-    Serial.println("FALL DETECTED");
+    if (DEBUG)
+      Serial.println(F("FALL DETECTED"));
+    // Send notification, fall detected
     fall = false;
   }
   if (trigger2cnt >= 6)
   { //allow 0.5s for orientation change
     trigger2 = false;
     trigger2cnt = 0;
-    Serial.println("TRIGGER 2 DECACTIVATED");
+    if (DEBUG)
+      Serial.println(F("TRIGGER 2 DECACTIVATED"));
   }
   if (trigger1cnt >= 6)
   { //allow 0.5s for AM to break upper threshold
     trigger1 = false;
     trigger1cnt = 0;
-    Serial.println("TRIGGER 1 DECACTIVATED");
+    if (DEBUG)
+      Serial.println(F("TRIGGER 1 DECACTIVATED"));
   }
-  delay(100);
 }
 
-void mpu_read()
+void initMAX30003()
 {
-  // sensors_event_t a, g, temp;
-  // mpu.getEvent(&a, &g, &temp);
+  SPI.begin();
+  SPI.setBitOrder(MSBFIRST);
+  SPI.setDataMode(SPI_MODE0);
 
-  // if ((millis() - lastTimeAcc) > accelerometerDelay)
-  // {
+  bool ret = max30003.max30003ReadInfo();
+  if (ret)
+  {
+    if (DEBUG)
+      Serial.println(F("Max30003 ID Success"));
+  }
+  else
+  {
+    while (!ret)
+    {
+      ret = max30003.max30003ReadInfo();
+      if (DEBUG)
+        Serial.println(F("Failed to read ID"));
+      delay(5000);
+    }
+  }
 
-  //   /* Print out the values */
-  //   Serial.print("Acc X: ");
-  //   Serial.print(a.acceleration.x);
-  //   Serial.print("Acc Y: ");
-  //   Serial.print(a.acceleration.y);
-  //   Serial.print("Acc Z: ");
-  //   Serial.println(a.acceleration.z);
+  if (DEBUG)
+    Serial.println("Initializing the chip ....");
+  max30003.max30003BeginRtorMode();
+  enableInterruptPin();
+  max30003.max30003RegRead(STATUS, statusReg);
+}
 
-  //   lastTimeAcc = millis();
-  // }
-  // if ((millis() - lastTime) > gyroDelay)
-  // {
-  //   Serial.print("Gyro X: ");
-  //   Serial.print(g.gyro.x);
-  //   Serial.print("Gyro Y: ");
-  //   Serial.print(g.gyro.y);
-  //   Serial.print("Gyro Z: ");
-  //   Serial.println(g.gyro.z);
-  //   Serial.println("");
+void rtorInterruptHandler()
+{
+  rtorIntrFlag = true;
+}
 
-  //   lastTime = millis();
-  // }
-
-  Wire.beginTransmission(MPU_address);
-  Wire.write(0x3B);
-  Wire.endTransmission(false);
-  Wire.requestFrom(MPU_address, 14, true); // request total of 14 registers
-  AcX = Wire.read() << 8 | Wire.read();    // 0x3B (ACCEL_XOUT_H) & 0x3C (ACCEL_XOUT_L)
-  AcY = Wire.read() << 8 | Wire.read();    // 0x3D (ACCEL_YOUT_H) & 0x3E (ACCEL_YOUT_L)
-  AcZ = Wire.read() << 8 | Wire.read();    // 0x3F (ACCEL_ZOUT_H) & 0x40 (ACCEL_ZOUT_L)
-  Tmp = Wire.read() << 8 | Wire.read();    // 0x41 (TEMP_OUT_H) & 0x42 (TEMP_OUT_L)
-  GyX = Wire.read() << 8 | Wire.read();    // 0x43 (GYRO_XOUT_H) & 0x44 (GYRO_XOUT_L)
-  GyY = Wire.read() << 8 | Wire.read();    // 0x45 (GYRO_YOUT_H) & 0x46 (GYRO_YOUT_L)
-  GyZ = Wire.read() << 8 | Wire.read();    // 0x47 (GYRO_ZOUT_H) & 0x48 (GYRO_ZOUT_L)
+void enableInterruptPin()
+{
+  pinMode(INT_PIN, INPUT_PULLUP);
+  attachInterrupt(digitalPinToInterrupt(INT_PIN), rtorInterruptHandler, CHANGE);
 }
