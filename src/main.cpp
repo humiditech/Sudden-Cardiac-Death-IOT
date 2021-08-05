@@ -50,11 +50,12 @@ void Def(void * parameter){
       Firebase.setString(defibrilatorFBdata, "/Relay/relayState", "OFF");
       digitalWrite(BUZZER, LOW);
     }
+    vTaskDelay(1);
   }
 }
 
 void ECGtask(void * parameter){
-  for(;;){
+  for(;;){ 
     defibrilator.GetECGSignal();
 
     if(defibrilator.IsAritmia()){
