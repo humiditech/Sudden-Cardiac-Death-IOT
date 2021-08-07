@@ -12,6 +12,8 @@ FirebaseData defibrilatorFBdata;
 TaskHandle_t ECGTask;
 TaskHandle_t Defibrilation;
 
+String age;
+
 unsigned long lastTime = 0;
 unsigned long lastTimeTemperature = 0;
 unsigned long lastTimeAcc = 0;
@@ -31,20 +33,37 @@ void Def(void * parameter){
     if(defibrilator.trigger == "OFF"){
       Firebase.getString(defibrilatorFBdata, "/Relay/relayState", defibrilator.trigger);
     }
-    if(defibrilator.RRDetection == "ARITMIA" && defibrilator.trigger == "OFF"){
+    if(defibrilator.RRDetection == "ABNORMAL" && defibrilator.trigger == "OFF"){
       if(!getfirsttime){
         millisfirst = millis();
         getfirsttime = false;
+        if(DEBUG){
+          Serial.println("ABNORMAL, wait for confirmation!");
+        }
       }
       else if(millis() - millisfirst >= 900000){
+        if(DEBUG){
+          Serial.println("Defibrilate Warning!");
+        }
         defibrilator.trigger == "ON";
-        digitalWrite(BUZZER, HIGH);
+        for(int i=0; 1<4; i++){
+          digitalWrite(BUZZER, HIGH);
+          delay(300);
+          digitalWrite(BUZZER, LOW);
+        }
       }
+      
     }
-    else if(defibrilator.RRDetection == "ARITMIA" && defibrilator.trigger == "ON"){
+    else if(defibrilator.RRDetection == "ABNORMAL" && defibrilator.trigger == "ON"){
+      if(DEBUG){
+        Serial.println("Defibrilate!!!");
+      }
       defibrilator.Defibrilate();
     }
     else if(defibrilator.RRDetection == "NORMAL" && defibrilator.trigger == "ON"){
+      if(DEBUG){
+        Serial.println("Defibrilate Done!!!");
+      }
       defibrilator.NoDefibrilate();
       defibrilator.trigger = "OFF";
       Firebase.setString(defibrilatorFBdata, "/Relay/relayState", "OFF");
@@ -57,10 +76,12 @@ void Def(void * parameter){
 void ECGtask(void * parameter){
   for(;;){ 
     defibrilator.GetECGSignal();
-
     if(defibrilator.IsAritmia()){
-      defibrilator.RRDetection = "ARITMIA";
+      defibrilator.RRDetection = "ABNORMAL";
       aritmia = true;
+      if(DEBUG){
+        Serial.println("Aritmia GESS!!!");
+      }
     }
     else{
       defibrilator.RRDetection = "NORMAL";
@@ -81,6 +102,11 @@ void setup()
   Firebase.begin(FIREBASE_HOST, FIREBASE_AUTH);
   Firebase.setString(defibrilatorFBdata, "/Relay/relayState", "OFF");
   Firebase.setString(defibrilatorFBdata,"/Sensor/imuSensorStatus","IDLE");
+  Firebase.getString(defibrilatorFBdata, "/PatientParams/age", age);
+  if(DEBUG){
+    Serial.println("AGE :" + age);
+  }
+  defibrilator.SetMaxHR(age);
   delay(300);
 }
 
@@ -88,5 +114,13 @@ void loop()
 {
   defibrilator.GetMPUdata();
   defibrilator.Falldetection(defibrilator.ax,defibrilator.ay,defibrilator.az,defibrilator.gx,defibrilator.gy,defibrilator.gz);
-  Firebase.setString(defibrilatorFBdata,"/Sensor/imuSensorStatus","IDLE");
+  if(fall){
+    Firebase.setString(defibrilatorFBdata,"/Sensor/imuSensorStatus","FALL");
+    if(DEBUG){
+      Serial.println("Jatuh GESS!!!");
+    }
+  }
+  else{
+    Firebase.setString(defibrilatorFBdata,"/Sensor/imuSensorStatus","IDLE");
+  }
 }

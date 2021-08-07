@@ -56,6 +56,8 @@ class Defibrilator{
     unsigned long _defibrilateTime = 0;
     bool _relaystate = LOW;
     bool _Defon = false;
+    String _patienAge;
+    uint16_t _MaxHR;
 
     private:
     float mean(float a, float b);
@@ -78,6 +80,8 @@ class Defibrilator{
     void GetMPUdata();
     void Defibrilate();
     void NoDefibrilate();
+    void SetMaxHR(String age);
+    void Ledact(uint16_t HB);
 };
 
 #endif

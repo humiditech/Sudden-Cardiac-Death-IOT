@@ -52,8 +52,7 @@ float Defibrilator::mean(float a, float b){
 
 void Defibrilator::GetECGSignal(){
     
-  if ((analogRead(this->_datapin) > threshold) && (this->belowThreshold == true))
-  {
+  if ((analogRead(this->_datapin) > threshold) && (this->belowThreshold == true)){
     int beat_new = millis();    // get the current millisecond
     int diff = beat_new - beat_old;    // find the time between the last two beats
     int currentBPM = 60000/ diff;    // convert to beats per minute
@@ -260,6 +259,43 @@ void Defibrilator::Falldetection(float ax, float ay, float az, float gx, float g
 void Defibrilator::IsBodyFall(){
     this->GetMPUdata();
     this->Falldetection(ax, ay, az, gx, gy, gz);
+}
+
+void Defibrilator::SetMaxHR(String age){
+  this->_patienAge = age;
+  this->_MaxHR = 220 - age.toInt();
+  if(DEBUG){
+    Serial.println("MAX HR :" + String(this->_MaxHR));
+  }
+}
+
+void Defibrilator::Ledact(uint16_t HB){
+  uint8_t percentage = (HB/this->_MaxHR)*100;
+
+  if(percentage <= 63){
+    digitalWrite(LED_HIJAU, HIGH);
+    digitalWrite(LED_MERAH, LOW);
+    digitalWrite(LED_KUNING, LOW);
+    digitalWrite(BUZZER, HIGH); 
+  }
+  else if(percentage >= 64 && percentage <= 76){
+    digitalWrite(LED_HIJAU, LOW);
+    digitalWrite(LED_MERAH, LOW);
+    digitalWrite(LED_KUNING, HIGH);
+    digitalWrite(BUZZER, HIGH); 
+  }
+  else if(percentage >= 77 && percentage <= 93){
+    digitalWrite(LED_HIJAU, LOW);
+    digitalWrite(LED_MERAH, HIGH);
+    digitalWrite(LED_KUNING, LOW);
+    digitalWrite(BUZZER, HIGH); 
+  }
+  else{
+    digitalWrite(LED_HIJAU, LOW);
+    digitalWrite(LED_MERAH, HIGH);
+    digitalWrite(LED_KUNING, LOW);
+    digitalWrite(BUZZER, HIGH);    
+  }
 }
 
 uint16_t Defibrilator::GetHeartbeat(){
