@@ -1,7 +1,7 @@
 #include <Arduino.h>
 #include <Defibrilator.h>
 
-#define ECG_OUTPUT 27
+#define ECG_OUTPUT 39
 
 Defibrilator defibrilator(ECG_OUTPUT);
 FirebaseData defibrilatorFBdata;
@@ -9,10 +9,13 @@ FirebaseData defibrilatorFBdata;
 #define FIREBASE_HOST "https://sisca-app-67dfd-default-rtdb.firebaseio.com/"
 #define FIREBASE_AUTH "iEZgfjTk3CnbsGTIKGPakZta4W6zprRsob7jAm7I"
 
-TaskHandle_t ECGTask;
+TaskHandle_t Data;
 TaskHandle_t Defibrilation;
 
 String age;
+
+const char* ssid = "sc19";
+const char* password =  "4444333221";
 
 unsigned long lastTime = 0;
 unsigned long lastTimeTemperature = 0;
@@ -21,6 +24,8 @@ unsigned long gyroDelay = 10;
 unsigned long temperatureDelay = 1000;
 unsigned long accelerometerDelay = 50;
 unsigned long millisfirst = 0;
+unsigned long printmillis = 0;
+unsigned long getecgtime = 0;
 bool getfirsttime = false;
 bool aritmia = false;
 
@@ -73,24 +78,12 @@ void Def(void * parameter){
   }
 }
 
-void ECGtask(void * parameter){
+void DataSend(void * parameter){
   for(;;){ 
-    defibrilator.GetECGSignal();
-    if(defibrilator.IsAritmia()){
-      defibrilator.RRDetection = "ABNORMAL";
-      aritmia = true;
-      if(DEBUG){
-        Serial.println("Aritmia GESS!!!");
-      }
-    }
-    else{
-      defibrilator.RRDetection = "NORMAL";
-      aritmia = false;
-      digitalWrite(BUZZER, LOW);
-    }
     Firebase.setInt(defibrilatorFBdata,"/Sensor/ecgBPM",defibrilator.GetHeartbeat());
     Firebase.setString(defibrilatorFBdata,"/Sensor/rrDetection",defibrilator.RRDetection);
-    vTaskDelay(1);
+    Firebase.setString(defibrilatorFBdata,"/Sensor/imuSensorStatus","FALL");
+    // vTaskDelay(100);
   }
 }
 
@@ -98,29 +91,60 @@ void setup()
 {
   Serial.begin(115200);
   defibrilator.begin();
-  xTaskCreatePinnedToCore(ECGtask,"ECG",10000,NULL,0,&ECGTask,0);
+    WiFi.begin(ssid, password);
+    if(DEBUG){
+        Serial.print("Connecting to Wi-Fi");
+    }
+    while (WiFi.status() != WL_CONNECTED){
+         if(DEBUG){
+            Serial.print(".");
+        }
+        delay(200);
+    }
+    Serial.println("Connected");
+    delay(1000);
+    
   Firebase.begin(FIREBASE_HOST, FIREBASE_AUTH);
   Firebase.setString(defibrilatorFBdata, "/Relay/relayState", "OFF");
   Firebase.setString(defibrilatorFBdata,"/Sensor/imuSensorStatus","IDLE");
   Firebase.getString(defibrilatorFBdata, "/PatientParams/age", age);
-  if(DEBUG){
-    Serial.println("AGE :" + age);
-  }
+
   defibrilator.SetMaxHR(age);
+  
+  xTaskCreatePinnedToCore(DataSend,"ECG",10000,NULL,1,&Data,1);
+  // xTaskCreatePinnedToCore(Def,"Defibliation",10000,NULL,1,&Defibrilation,0);
+  
   delay(300);
 }
 
 void loop()
 {
-  defibrilator.GetMPUdata();
-  defibrilator.Falldetection(defibrilator.ax,defibrilator.ay,defibrilator.az,defibrilator.gx,defibrilator.gy,defibrilator.gz);
-  if(fall){
-    Firebase.setString(defibrilatorFBdata,"/Sensor/imuSensorStatus","FALL");
-    if(DEBUG){
-      Serial.println("Jatuh GESS!!!");
-    }
+  defibrilator.GetECGSignal();
+  
+  if(millis() - printmillis >= 1000){
+    printmillis = millis();
+    Serial.print(defibrilator.GetHeartbeat());
+    Serial.println(" BPM");
   }
-  else{
-    Firebase.setString(defibrilatorFBdata,"/Sensor/imuSensorStatus","IDLE");
-  }
+
+  // if(defibrilator.IsAritmia()){
+  // defibrilator.RRDetection = "ABNORMAL";
+  // aritmia = true;
+  // if(DEBUG){
+  //     Serial.println("Aritmia GESS!!!");
+  // }
+  // }
+  // else{
+  //   defibrilator.RRDetection = "NORMAL";
+  //   aritmia = false;
+  //   digitalWrite(BUZZER, LOW);
+  // }
+
+  // defibrilator.GetMPUdata();
+  // defibrilator.Falldetection(defibrilator.ax,defibrilator.ay,defibrilator.az,defibrilator.gx,defibrilator.gy,defibrilator.gz);
+  // if(fall){
+  //   if(DEBUG){
+  //     Serial.println("Jatuh GESS!!!");
+  //   }
+  // }
 }

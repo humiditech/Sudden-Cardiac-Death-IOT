@@ -1,8 +1,8 @@
 #include <Defibrilator.h>
 
-int beatIndex = 0;
+int beatIndex=0;
 int RRindex = 0;
-int beat_old = 0;
+unsigned long beat_old = 0;
 boolean fall = false;     // true when fall has occurred
 boolean trigger1 = false; // true when accelerometer value exceed lower threshold
 boolean trigger2 = false; // true when accelerometer value exceed upper threshold
@@ -33,17 +33,6 @@ void Defibrilator::begin(){
     Wire.write(0x6B); // PWR_MGMT_1 register
     Wire.write(0);    // set to zero (wakes up the MPU-6050)
     Wire.endTransmission(true);
-
-    WiFi.begin(SSID, PASS);
-    if(DEBUG){
-        Serial.print("Connecting to Wi-Fi");
-    }
-    while (WiFi.status() != WL_CONNECTED){
-         if(DEBUG){
-            Serial.print(".");
-        }
-        delay(200);
-    }
 }
 
 float Defibrilator::mean(float a, float b){
@@ -51,50 +40,39 @@ float Defibrilator::mean(float a, float b){
 }
 
 void Defibrilator::GetECGSignal(){
-    
-  if ((analogRead(this->_datapin) > threshold) && (this->belowThreshold == true)){
-    int beat_new = millis();    // get the current millisecond
+  uint16_t data = analogRead(this->_datapin);
+  if ((data > threshold) && (this->belowThreshold == true)){
+    unsigned long beat_new = millis();    // get the current millisecond
     int diff = beat_new - beat_old;    // find the time between the last two beats
-    int currentBPM = 60000/ diff;    // convert to beats per minute
-
-    this->beats[0] = this->beats[1];
-    this->beats[1] = this->beats[2];
-    this->beats[2] = this->beats[3];
-    this->beats[3] = currentBPM;  // store to array to convert the average
+    
+    float currentBPM = 60000/diff;
+     
+    this->beats[beatIndex] = currentBPM;  // store to array to convert the average
 
     this->RRInterval[0] = this->RRInterval[1];
     this->RRInterval[1] = this->RRInterval[2];
     this->RRInterval[2] = diff;
 
-    int total = 0;
+    float total = 0.0;
 
     for (int i = 0; i < 4; i++){
         total += beats[i];
     }
 
-    if(firsttimeon)
-    {
-        this->cnt++;
-        if(this->cnt >= 4){
-        this->firsttimeon = false;
-        this->cnt = 0;
-        }
-    }
-    else{
-        this->HBmean = (int)(total / 4);
-        this->RRintervalnow = diff;
-        if(DEBUG){
-            String data = "HR : " + String(this->HBmean) + " BPM" + "\n" + "RR : " + String(this->RRintervalnow,2) + " ms" +"\n\n"; 
-            Serial.println(data);
-        }
-        beat_old = beat_new;
-        belowThreshold = false;
-    }
+    this->RRintervalnow = diff;
+    this->HBmean = (int)(total / 4);
+
+    beat_old = beat_new;
+    beatIndex = (beatIndex + 1) % 4;
+
+    belowThreshold = false;   // convert to beats per minute
   }
 
-  else if ((analogRead(this->_datapin)) < threshold){
+  else if (data < threshold){
     belowThreshold = true;
   }
+  
+  delay(5);
 }
 
 bool Defibrilator::IsAritmia(){

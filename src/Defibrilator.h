@@ -13,7 +13,7 @@
 #define LED_KUNING 32
 #define BUZZER 25
 
-#define threshold 620
+#define threshold 2100.0
 #define ARITMIA_UPPER_THRESHOLD 100
 #define ARITMIA_LOWER_THRESHOLD 60
 
@@ -26,7 +26,7 @@
 
 extern int beatIndex;
 extern int RRindex;
-extern int beat_old;
+extern unsigned long beat_old;
 extern boolean fall;     // true when fall has occurred
 extern boolean trigger1; // true when accelerometer value exceed lower threshold
 extern boolean trigger2; // true when accelerometer value exceed upper threshold
@@ -44,11 +44,11 @@ class Defibrilator{
     private:
     Adafruit_MPU6050 MPU;
     uint8_t _datapin;
-    uint16_t beats[4] = {0,0,0,0};
-    float RRInterval[5] = {0,0,0,0,0};
-    float RRArray[3] = {0,0,0};
+    float beats[4];
+    float RRInterval[4];
+    float RRArray[3];
     float RRintervalnow = 0;
-    uint16_t HBmean = 0;
+    int HBmean = 0;
     bool belowThreshold = true;
     uint8_t cnt=0;
     bool firsttimeon = true;
@@ -65,7 +65,7 @@ class Defibrilator{
     public:
     String RRDetection = "NORMAL";
     float ax,ay,az,gx,gy,gz;
-    String trigger;
+    String trigger = "OFF";
    
     public:
     Defibrilator(uint8_t pin);
