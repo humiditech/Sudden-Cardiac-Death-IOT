@@ -15,13 +15,15 @@ int lowerThres = 2;
 int higherThres = 12;
 int angleLowerThres = 30;
 int angleHigherThres = 400;
+uint8_t dataindex = 0;
 
-Defibrilator::Defibrilator(uint8_t pin){
-    this->_datapin = pin;
+Defibrilator::Defibrilator(HardwareSerial *HW){
+  this->EcgSerial = HW;
 }
 
 void Defibrilator::begin(){
-    pinMode(this->_datapin, INPUT);
+    this->EcgSerial->begin(9600, SERIAL_8N1,16,17);
+    // pinMode(this->_datapin, INPUT);
     pinMode(RELAY_PIN, OUTPUT);
     pinMode(LED_HIJAU, OUTPUT);
     pinMode(LED_KUNING, OUTPUT);
@@ -35,71 +37,164 @@ void Defibrilator::begin(){
     Wire.endTransmission(true);
 }
 
-float Defibrilator::mean(float a, float b){
+uint16_t Defibrilator::mean(uint16_t a, uint16_t b){
     return (a+b)/2;
 }
 
 void Defibrilator::GetECGSignal(){
-  uint16_t data = analogRead(this->_datapin);
-  if ((data > threshold) && (this->belowThreshold == true)){
-    unsigned long beat_new = millis();    // get the current millisecond
-    int diff = beat_new - beat_old;    // find the time between the last two beats
-    
-    float currentBPM = 60000/diff;
-     
-    this->beats[beatIndex] = currentBPM;  // store to array to convert the average
+  String data="";
+  if(this->EcgSerial->available()){
+    data = this->EcgSerial->readStringUntil('\n');
 
-    this->RRInterval[0] = this->RRInterval[1];
-    this->RRInterval[1] = this->RRInterval[2];
-    this->RRInterval[2] = diff;
+    int index1 = data.indexOf(',');
+    int index2 = data.indexOf(',',index1+1);
 
-    float total = 0.0;
-
-    for (int i = 0; i < 4; i++){
-        total += beats[i];
-    }
-
-    this->RRintervalnow = diff;
-    this->HBmean = (int)(total / 4);
-
-    beat_old = beat_new;
-    beatIndex = (beatIndex + 1) % 4;
-
-    belowThreshold = false;   // convert to beats per minute
+    this->Analogdata = data.substring(0,index1).toInt();
+  if(
+    ((this->Analogarray[0] < ECGOnDetect_Upper)  &&  Analogarray[0] > ECGOnDetect_Lower) 
+    && 
+    ((this->Analogarray[1] < ECGOnDetect_Upper)  &&  Analogarray[1] > ECGOnDetect_Lower) 
+    &&
+    ((this->Analogarray[2] < ECGOnDetect_Upper)  &&  Analogarray[2] > ECGOnDetect_Lower) 
+    && 
+    ((this->Analogarray[3] < ECGOnDetect_Upper)  &&  Analogarray[3] > ECGOnDetect_Lower) 
+    &&
+    ((this->Analogarray[4] < ECGOnDetect_Upper)  &&  Analogarray[4] > ECGOnDetect_Lower) 
+    && 
+    ((this->Analogarray[5] < ECGOnDetect_Upper)  &&  Analogarray[5] > ECGOnDetect_Lower) 
+    &&
+    ((this->Analogarray[6] < ECGOnDetect_Upper)  &&  Analogarray[6] > ECGOnDetect_Lower) 
+    && 
+    ((this->Analogarray[7] < ECGOnDetect_Upper)  &&  Analogarray[7] > ECGOnDetect_Lower) 
+    &&
+    ((this->Analogarray[8] < ECGOnDetect_Upper)  &&  Analogarray[8] > ECGOnDetect_Lower) 
+    && 
+    ((this->Analogarray[9] < ECGOnDetect_Upper)  &&  Analogarray[9] > ECGOnDetect_Lower)
+  ){
+    this->HBmean = 0;
+    this->RRintervalnow = 0;    
+  }
+  else{
+    this->HBmean = data.substring(index1 + 1, index2).toInt();
+    this->RRintervalnow = data.substring(index2+1).toInt();
   }
 
-  else if (data < threshold){
-    belowThreshold = true;
-  }
   
-  delay(5);
+    // for(int i=1;i<100;i++){
+    //   Analogarray[i] = Analogarray[i-1];
+    // }
+    // Analogarray[0] = Analogdata;
+
+    // for(int i=0;i<100;i++){
+    //   if(Analogarray[i] > ECGOnDetect_Upper && Analogarray[i] < ECGOnDetect_Lower){
+    //     count_detect++;
+    //   }
+    //   else{
+    //     break;
+    //   }
+    // }
+
+    // Serial.println(count_detect);
+
+    // if(count_detect == 100){
+    //   count_detect = 0;
+    //   _HBdetected = false;
+    //   this->HBmean = 0;
+    //   this->RRintervalnow = 0;
+    // }
+    // else{
+    //   _HBdetected = true;
+    //   this->HBmean = data.substring(index1 + 1, index2).toInt();
+    //   this->RRintervalnow = data.substring(index2+1).toInt();
+
+    //   for(int i=1;i<10;i++){
+    //   beats[i] = beats[i-1];
+    //   }
+    //   beats[0] = HBmean;
+
+    //   this->RRArray[2] = this->RRArray[1];
+    //   this->RRArray[1] = this->RRArray[0];
+    //   this->RRArray[0] = this->RRintervalnow;
+    //   count_detect = 0;
+    // }
+  }
 }
 
 bool Defibrilator::IsAritmia(){
-    if((RRInterval[1] < 0.6) && ((1.8*RRInterval[1]) < RRInterval[0])){
-      return true;  
-    }
-    else if(
-        (((1.15*RRInterval[1]) < RRInterval[0]) && ((1.15*RRInterval[1]) < RRInterval[2]))
-                                            ||
-        ((fabsf(RRInterval[0] - RRInterval[1]) < 0.3) && ((RRInterval[0] < 0.8) && (RRInterval[1] < 0.8)) 
-        && (RRInterval[2] > (1.2*this->mean(RRInterval[0], RRInterval[1]))))
-                                            ||
-        ((fabsf(RRInterval[1] - RRInterval[2]) < 0.3) && ((RRInterval[1] < 0.8) && (RRInterval[2] < 0.8)) 
-        && (RRInterval[0] > (1.2*this->mean(RRInterval[1], RRInterval[2]))))
-    ){
-      return true;
-    }
-    else if((RRInterval[1] > 2.2 && RRInterval[1] < 3.0)
-                                 && 
-    ((fabsf(RRInterval[0]-RRInterval[1]) < 0.2) || (fabsf(RRInterval[1]-RRInterval[2]) < 0.2))
+  bool isaritmia = false;
+  if(
+    ((beats[0] < ARITMIA_LOWER_THRESHOLD && beats[0] > 0)  || beats[0] > ARITMIA_UPPER_THRESHOLD) 
+    && 
+    ((beats[1] < ARITMIA_LOWER_THRESHOLD && beats[1] > 0)  || beats[1] > ARITMIA_UPPER_THRESHOLD) 
+    &&
+    ((beats[2] < ARITMIA_LOWER_THRESHOLD && beats[2] > 0)  || beats[2] > ARITMIA_UPPER_THRESHOLD) 
+    && 
+    ((beats[3] < ARITMIA_LOWER_THRESHOLD && beats[3] > 0)  || beats[3] > ARITMIA_UPPER_THRESHOLD) 
+    &&
+    ((beats[4] < ARITMIA_LOWER_THRESHOLD && beats[4] > 0)  || beats[4] > ARITMIA_UPPER_THRESHOLD) 
+    && 
+    ((beats[5] < ARITMIA_LOWER_THRESHOLD && beats[5] > 0)  || beats[5] > ARITMIA_UPPER_THRESHOLD) 
+    /*&&
+    ((beats[6] < ARITMIA_LOWER_THRESHOLD && beats[6] > 0)  || beats[6] > ARITMIA_UPPER_THRESHOLD) 
+    && 
+    ((beats[7] < ARITMIA_LOWER_THRESHOLD && beats[7] > 0)  || beats[7] > ARITMIA_UPPER_THRESHOLD) 
+    &&
+    ((beats[8] < ARITMIA_LOWER_THRESHOLD && beats[8] > 0)  || beats[8] > ARITMIA_UPPER_THRESHOLD) 
+    && 
+    ((beats[9] < ARITMIA_LOWER_THRESHOLD && beats[9] > 0)  || beats[9] > ARITMIA_UPPER_THRESHOLD)*/
+  ){
+    _HBdetected = true;
+    // return true;
+  }
+  else{
+    _HBdetected = false;
+  }
 
-    ){
-        return true;
+  if(_HBdetected){
+    Serial.println("masuk pengecekan");
+    _HBdetected = false;
+    if((RRArray[1] < 600) && (RRArray[1] < RRArray[2])){
+      Serial.println(1);
+      isaritmia = true;
     }
     else{
-        return false;
+      Serial.println(2);
+      isaritmia = false;
     }
+    // if((RRArray[1] < 600) && ((1.8*RRArray[1]) < RRArray[0])){
+    // Serial.println(1);
+    // isaritmia = true; 
+    // }
+    // else if(
+    //     (((1.15*RRArray[1]) < RRArray[0]) && ((1.15*RRArray[1]) < RRArray[2]))
+    //                                         ||
+    //     ((abs(RRArray[0] - RRArray[1]) < 300) && ((RRArray[0] < 800) && (RRArray[1] < 800)) 
+    //     && (RRArray[2] > (1.2*this->mean(RRArray[0], RRArray[1]))))
+    //                                         ||
+    //     ((abs(RRArray[1] - RRArray[2]) < 300) && ((RRArray[1] < 800) && (RRArray[2] < 800)) 
+    //     && (RRArray[0] > (1.2*this->mean(RRArray[1], RRArray[2]))))
+    // ){
+    //   Serial.println(2);
+    //   isaritmia = true;
+    // }
+    // else if((RRArray[1] > 2200 && RRArray[1] < 3000)
+    //                             && 
+    // ((abs(RRArray[0]-RRArray[1]) < 200) || (abs(RRArray[1]-RRArray[2]) < 200))
+    // ){
+    //   Serial.println(3);
+    //   isaritmia = true;
+    // }
+    // else{
+    //   Serial.println(4);
+    //   isaritmia = false;
+    // }
+    // Serial.println(isaritmia);
+    return isaritmia;
+  }
+  else{
+    // Serial.println(5);
+    return false;
+  }
 }
 
 void Defibrilator::Defibrilate(){
@@ -122,7 +217,7 @@ void Defibrilator::Defibrilate(){
 }
 
 void Defibrilator::NoDefibrilate(){
-    digitalWrite(RELAY_PIN, LOW);
+  digitalWrite(RELAY_PIN, LOW);
 }
 
 void Defibrilator::GetMPUdata()
@@ -239,16 +334,16 @@ void Defibrilator::IsBodyFall(){
     this->Falldetection(ax, ay, az, gx, gy, gz);
 }
 
-void Defibrilator::SetMaxHR(String age){
+void Defibrilator::SetMaxHR(int age){
   this->_patienAge = age;
-  this->_MaxHR = 220 - age.toInt();
+  this->_MaxHR = 220 - this->_patienAge;
   if(DEBUG){
     Serial.println("MAX HR :" + String(this->_MaxHR));
   }
 }
 
 void Defibrilator::Ledact(uint16_t HB){
-  uint8_t percentage = (HB/this->_MaxHR)*100;
+  uint16_t percentage = ((float)(HB/this->_MaxHR))*100;
 
   if(percentage <= 63){
     digitalWrite(LED_HIJAU, HIGH);
@@ -276,11 +371,58 @@ void Defibrilator::Ledact(uint16_t HB){
   }
 }
 
-uint16_t Defibrilator::GetHeartbeat(){
-    return this->HBmean;
+void Defibrilator::ShiftArray(){
+  this->RRArray[2] = this->RRArray[1];
+  this->RRArray[1] = this->RRArray[0];
+  this->RRArray[0] = this->RRintervalnow; 
+
+  // beats[9] = beats[8];
+  // beats[8] = beats[7];
+  // beats[7] = beats[6];
+  // beats[6] = beats[5];
+  beats[5] = beats[4];
+  beats[4] = beats[3];
+  beats[3] = beats[2];
+  beats[2] = beats[1];
+  beats[1] = beats[0];
+  beats[0] = HBmean;
+
+  Analogarray[9] = Analogarray[8];
+  Analogarray[8] = Analogarray[7];
+  Analogarray[7] = Analogarray[6];
+  Analogarray[6] = Analogarray[5];
+  Analogarray[5] = Analogarray[4];
+  Analogarray[4] = Analogarray[3];
+  Analogarray[3] = Analogarray[2];
+  Analogarray[2] = Analogarray[1];
+  Analogarray[1] = Analogarray[0];
+  Analogarray[0] = this->Analogdata;
+
+  String a = String(RRArray[0]) + "," + String(RRArray[1]) + "," + String(RRArray[2]);
+  String d = String(beats[0]) + "," + String(beats[1]) + "," +String(beats[2]) + "," + String(beats[3]) + "," 
+  + String(beats[4]) + "," + String(beats[5]) /*+ "," + String(beats[6]) + "," + String(beats[7]) + "," + String(beats[8]) 
+  + "," + String(beats[9])*/;
+  String c = String(Analogarray[0]) + "," + String(Analogarray[1]) + "," +String(Analogarray[2]) + "," + String(Analogarray[3]) + "," 
+  + String(Analogarray[4]) + "," + String(Analogarray[5]) + "," + String(Analogarray[6]) + "," + String(Analogarray[7]) + "," + String(Analogarray[8]) 
+  + "," + String(Analogarray[9]);
+  Serial.println(a);
+  Serial.println(d);
+  Serial.println(c); 
 }
 
-float Defibrilator::GetRRInterval(){
-    return this->RRintervalnow;
+uint16_t Defibrilator::GetHeartbeat(){
+  return this->HBmean;
+}
+
+uint16_t Defibrilator::GetRRInterval(){
+  return this->RRintervalnow;
+}
+
+uint16_t Defibrilator::GetAnalogData(){
+  return this->Analogdata;
+}
+
+bool Defibrilator::GetStatus(){
+  return this->ECGPlaced;
 }
 

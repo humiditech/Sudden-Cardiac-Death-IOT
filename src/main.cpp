@@ -1,10 +1,12 @@
 #include <Arduino.h>
 #include <Defibrilator.h>
+#include <BluetoothSerial.h>
 
-#define ECG_OUTPUT 39
+HardwareSerial ECGSerial(1);
 
-Defibrilator defibrilator(ECG_OUTPUT);
+Defibrilator defibrilator(&ECGSerial);
 FirebaseData defibrilatorFBdata;
+BluetoothSerial EcgBluetooth;
 
 #define FIREBASE_HOST "https://sisca-app-67dfd-default-rtdb.firebaseio.com/"
 #define FIREBASE_AUTH "iEZgfjTk3CnbsGTIKGPakZta4W6zprRsob7jAm7I"
@@ -12,7 +14,7 @@ FirebaseData defibrilatorFBdata;
 TaskHandle_t Data;
 TaskHandle_t Defibrilation;
 
-String age;
+int age;
 
 const char* ssid = "sc19";
 const char* password =  "4444333221";
@@ -38,12 +40,12 @@ void Def(void * parameter){
     if(defibrilator.trigger == "OFF"){
       Firebase.getString(defibrilatorFBdata, "/Relay/relayState", defibrilator.trigger);
     }
-    if(defibrilator.RRDetection == "ABNORMAL" && defibrilator.trigger == "OFF"){
+    if(defibrilator.RRDetection == "ARITMIA" && defibrilator.trigger == "OFF"){
       if(!getfirsttime){
         millisfirst = millis();
         getfirsttime = false;
         if(DEBUG){
-          Serial.println("ABNORMAL, wait for confirmation!");
+          Serial.println("ARITMIA, wait for confirmation!");
         }
       }
       else if(millis() - millisfirst >= 900000){
@@ -59,7 +61,7 @@ void Def(void * parameter){
       }
       
     }
-    else if(defibrilator.RRDetection == "ABNORMAL" && defibrilator.trigger == "ON"){
+    else if(defibrilator.RRDetection == "ARITMIA" && defibrilator.trigger == "ON"){
       if(DEBUG){
         Serial.println("Defibrilate!!!");
       }
@@ -79,11 +81,17 @@ void Def(void * parameter){
 }
 
 void DataSend(void * parameter){
-  for(;;){ 
+  for(;;){
     Firebase.setInt(defibrilatorFBdata,"/Sensor/ecgBPM",defibrilator.GetHeartbeat());
+    Firebase.setInt(defibrilatorFBdata,"/Sensor/ecgSignal",defibrilator.GetAnalogData());
     Firebase.setString(defibrilatorFBdata,"/Sensor/rrDetection",defibrilator.RRDetection);
-    Firebase.setString(defibrilatorFBdata,"/Sensor/imuSensorStatus","FALL");
-    // vTaskDelay(100);
+    if(fall){
+      Firebase.setString(defibrilatorFBdata,"/Sensor/imuSensorStatus","FALL");
+    }
+    else{
+      Firebase.setString(defibrilatorFBdata,"/Sensor/imuSensorStatus","IDLE");
+    }
+    ECGSerial.println(defibrilator.GetAnalogData());
   }
 }
 
@@ -103,14 +111,12 @@ void setup()
     }
     Serial.println("Connected");
     delay(1000);
-    
+  EcgBluetooth.begin("Si-SCA");
   Firebase.begin(FIREBASE_HOST, FIREBASE_AUTH);
   Firebase.setString(defibrilatorFBdata, "/Relay/relayState", "OFF");
   Firebase.setString(defibrilatorFBdata,"/Sensor/imuSensorStatus","IDLE");
-  Firebase.getString(defibrilatorFBdata, "/PatientParams/age", age);
-
+  Firebase.getInt(defibrilatorFBdata, "/Relay/relayState", age);
   defibrilator.SetMaxHR(age);
-  
   xTaskCreatePinnedToCore(DataSend,"ECG",10000,NULL,1,&Data,1);
   // xTaskCreatePinnedToCore(Def,"Defibliation",10000,NULL,1,&Defibrilation,0);
   
@@ -120,25 +126,33 @@ void setup()
 void loop()
 {
   defibrilator.GetECGSignal();
-  
-  if(millis() - printmillis >= 1000){
-    printmillis = millis();
+  if(millis() - getecgtime > 500){
+    getecgtime = millis();
+    // Serial.println(data);
+    Serial.print(defibrilator.GetRRInterval());
+    Serial.println(" ms");
     Serial.print(defibrilator.GetHeartbeat());
-    Serial.println(" BPM");
+    Serial.println(" Bpm");
+    Serial.println(defibrilator.GetAnalogData());
+    defibrilator.ShiftArray();
+    defibrilator.Ledact(defibrilator.GetHeartbeat());
+    Serial.println();   
+  // }
+
+  if(defibrilator.IsAritmia()){
+    defibrilator.RRDetection = "ARITMIA";
+    aritmia = true;
+      if(DEBUG){
+          Serial.println("Aritmia GESS!!!");
+      }
+    }
+    else{
+      defibrilator.RRDetection = "NORMAL";
+      aritmia = false;
+      digitalWrite(BUZZER, LOW);
+  }
   }
 
-  // if(defibrilator.IsAritmia()){
-  // defibrilator.RRDetection = "ABNORMAL";
-  // aritmia = true;
-  // if(DEBUG){
-  //     Serial.println("Aritmia GESS!!!");
-  // }
-  // }
-  // else{
-  //   defibrilator.RRDetection = "NORMAL";
-  //   aritmia = false;
-  //   digitalWrite(BUZZER, LOW);
-  // }
 
   // defibrilator.GetMPUdata();
   // defibrilator.Falldetection(defibrilator.ax,defibrilator.ay,defibrilator.az,defibrilator.gx,defibrilator.gy,defibrilator.gz);
